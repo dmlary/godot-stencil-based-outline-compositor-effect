@@ -5,22 +5,36 @@ class_name StencilBasedOutlineCompositorEffect
 @export_file("*.glsl") var glsl_shader_file = "res://render_shader.glsl"
 
 var rd: RenderingDevice
+
+# Everything needed for the render stencil_copy_pipeline that copys from the stencil buffer
+## cached copy of the depth/stencil texture to detect when it changes
+var depth_texture: RID
+
+## stencil copy shader
 var stencil_copy_shader: RID
-var stencil_copy_uniform_set : RID
+# XXX create the buffer, and the uniform, and the uniform set at startup.
+# Update the buffer when the resolution changes
 var per_frame_uniform_buffer : RID
 var per_frame_uniform: RDUniform
 
-var texture: RID
-var texture_format := RDTextureFormat.new()
-var depth_texture: RID
+# framebuffer used for the stencil copy stencil_copy_pipeline
+# rebuild: resolution change, depth buffer rid change
 var framebuffer: RID
-var framebuf_format: int
-var pipeline: RID
+var framebuf_format: int # rebuild pipeline when changes
+
+## Vertex array containing a triangle that covers the full screen quad
 var vertex_format : int
 var vertex_buffer : RID
 var vertex_array : RID
-var clear_colors := PackedColorArray([Color.PINK])
 
+## stencil copy pipeline
+var stencil_copy_pipeline: RID
+
+
+## destination texture
+var texture: RID
+# used to detect
+var texture_format := RDTextureFormat.new()
 var output_texture := Texture2DRD.new()
 
 var mutex := Mutex.new()
@@ -114,7 +128,7 @@ func _build_stencil_copy_shader():
 
         void main() {
             vec2 UV = gl_FragCoord.xy / resolution;
-            frag_color.rgba = vec4(UV.x, UV.y, 0, 1);
+            frag_color.rgba = vec4(UV.x, UV.y, 1, 1);
         }
     """
     var shader_spirv: RDShaderSPIRV = rd.shader_compile_spirv_from_source(source)
@@ -151,9 +165,9 @@ func _build_shader():
     if stencil_copy_shader.is_valid():
         rd.free_rid(stencil_copy_shader)
         stencil_copy_shader = RID()
-        # freeing the stencil_copy_shader will also free the pipeline that was dependent on
+        # freeing the stencil_copy_shader will also free the stencil_copy_pipeline that was dependent on
         # the stencil_copy_shader
-        pipeline = RID()
+        stencil_copy_pipeline = RID()
 
     # load the stencil_copy_shader
     var shader_source = _load_glsl_from_file(glsl_shader_file)
@@ -174,8 +188,8 @@ func _build_shader():
 # alerts us we are about to be destroyed.
 func _notification(what):
     if what == NOTIFICATION_PREDELETE:
-        if pipeline.is_valid():
-            rd.free_rid(pipeline)
+        if stencil_copy_pipeline.is_valid():
+            rd.free_rid(stencil_copy_pipeline)
         if stencil_copy_shader.is_valid():
             rd.free_rid(stencil_copy_shader)
         if framebuffer.is_valid():
@@ -187,14 +201,14 @@ func _notification(what):
         if vertex_buffer.is_valid():
             rd.free_rid(vertex_buffer)
 
-## Create the render pipeline.
+## Create the render stencil_copy_pipeline.
 func _build_pipeline():
-    print("building pipeline")
-    if pipeline.is_valid():
-        rd.free_rid(pipeline)
-        pipeline = RID()
+    print("building stencil_copy_pipeline")
+    if stencil_copy_pipeline.is_valid():
+        rd.free_rid(stencil_copy_pipeline)
+        stencil_copy_pipeline = RID()
 
-    #create the pipeline
+    #create the stencil_copy_pipeline
     var blend := RDPipelineColorBlendState.new()
     var blend_attachment := RDPipelineColorBlendStateAttachment.new()
     blend.attachments.push_back(blend_attachment)
@@ -211,7 +225,7 @@ func _build_pipeline():
     stencil_state.front_op_fail = RenderingDevice.STENCIL_OP_KEEP
     stencil_state.front_op_pass = RenderingDevice.STENCIL_OP_KEEP
 
-    pipeline = rd.render_pipeline_create(
+    stencil_copy_pipeline = rd.render_pipeline_create(
         stencil_copy_shader,
         framebuf_format,
         vertex_format,
@@ -221,9 +235,9 @@ func _build_pipeline():
         stencil_state, # RDPipelineDepthStencilState.new(),
         blend,
     )
-    assert(pipeline.is_valid())
+    assert(stencil_copy_pipeline.is_valid())
 
-## Create a new color texture to use as the output for our render pipeline.
+## Create a new color texture to use as the output for our render stencil_copy_pipeline.
 ## Note: this texture must be the same size as the depth texture, so we create
 ## it on demand.
 func _build_texture(width: int, height: int):
@@ -255,7 +269,7 @@ func _build_texture(width: int, height: int):
 
 ## Build a framebuffer using the color texture and supplied depth texture.
 ## This function will return true if the format of the framebuffer changed,
-## which means we need to rebuild the pipeline.
+## which means we need to rebuild the stencil_copy_pipeline.
 func _build_framebuffer() -> bool:
     print("building framebuffer for depth texture ", depth_texture)
     if framebuffer.is_valid():
@@ -344,7 +358,7 @@ func _render_callback(_p_effect_callback_type, p_render_data):
     # Create a uniform buffer with resolution and stride
     # Update the uniform buffer with resolution (if changed)
     # get cached uniform set for stencil_copy & uniform buffer
-    # draw the init pipeline (stencil copy & init UV values)
+    # draw the init stencil_copy_pipeline (stencil copy & init UV values)
     # draw finish
     # for stride in [4, 2, 1]:
     #   update the uniform buffer with stride
@@ -354,10 +368,10 @@ func _render_callback(_p_effect_callback_type, p_render_data):
     #   
 
     var uniform_set = UniformSetCacheRD.get_cache(stencil_copy_shader, 0, [per_frame_uniform])
-    # Perform the draw using the rendering pipeline, and the stencil buffer
-    # from the real pipeline.
+    # Perform the draw using the rendering stencil_copy_pipeline, and the stencil buffer
+    # from the real stencil_copy_pipeline.
     assert(framebuffer.is_valid())
-    assert(pipeline.is_valid())
+    assert(stencil_copy_pipeline.is_valid())
     var draw_list := rd.draw_list_begin(
         framebuffer,
         RenderingDevice.DRAW_CLEAR_COLOR_0,
@@ -366,7 +380,7 @@ func _render_callback(_p_effect_callback_type, p_render_data):
         0,
         Rect2(),
         RenderingDevice.OPAQUE_PASS)
-    rd.draw_list_bind_render_pipeline(draw_list, pipeline)
+    rd.draw_list_bind_render_pipeline(draw_list, stencil_copy_pipeline)
     rd.draw_list_bind_vertex_array(draw_list, vertex_array)
     rd.draw_list_bind_uniform_set(draw_list, uniform_set, 0)
     rd.draw_list_draw(draw_list, false, 3) # this is the 

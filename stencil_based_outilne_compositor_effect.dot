@@ -1,0 +1,21 @@
+digraph G {
+    resolution -> depth_texture;
+    depth_texture -> framebuffer_format;
+    depth_texture -> framebuffer;
+    stencil_copy_shader -> stencil_copy_pipeline;
+    framebuffer_format -> stencil_copy_pipeline;
+    vertex_format -> stencil_copy_pipeline;
+    per_frame_uniform -> uniform_set;
+    stencil_copy_shader -> uniform_set;
+    texture -> framebuffer;
+    resolution -> texture;
+
+    vertex_format[shape=box];
+    stencil_copy_shader[shape=box];
+    per_frame_uniform[shape=box];
+    uniform_set[shape=box];
+
+    framebuffer -> draw;
+    stencil_copy_pipeline -> draw;
+    uniform_set -> draw;
+}
