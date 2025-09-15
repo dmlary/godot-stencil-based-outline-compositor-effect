@@ -14,7 +14,7 @@ var timer : Timer
 func _ready():
     # set the texture in the TextureRect to use the output texture of the
     # CompositorEffect
-    texture_rect.texture = outline_effect.output_texture
+    texture_rect.texture = outline_effect.debug_textures[1]
 
     # create a timer to check for changes to the shader source file
     timer = Timer.new()
@@ -29,5 +29,5 @@ func _check_shader() -> void:
     var mtime = FileAccess.get_modified_time(outline_effect.glsl_shader_file)
     if mtime > _shader_mtime:
         print("shader updated")
-        outline_effect.shader_dirty = true
+        outline_effect.jf_shader_dirty = true
         _shader_mtime = mtime
