@@ -26,10 +26,4 @@ func _ready():
     add_child(timer)
 
 func _check_shader() -> void:
-    # Check to see if the shader file has been modified.  If so, mark the
-    # shader as dirty so the CompositorEffect can reload it.
-    var mtime = FileAccess.get_modified_time(outline_effect.do_shader_file)
-    if mtime > _shader_mtime:
-        print("shader updated")
-        outline_effect.rebuild_pipelines = true
-        _shader_mtime = mtime
+    outline_effect.check_for_shader_changes()

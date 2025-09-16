@@ -25,8 +25,6 @@ var sc_pipeline: RID
 
 ## draw outline render pipeline
 var do_shader: RID
-var do_uniform_set: RID
-var do_framebuffer: RID
 var do_pipeline: RID
 var do_sampler: RID
 
@@ -66,6 +64,23 @@ var mutex := Mutex.new()
         mutex.lock()
         rebuild_pipelines = value
         mutex.unlock()
+
+## Tracks the highest modification time for any of the shaders to trigger a
+## reload
+var _shader_mtime := 0
+
+## Check if any of the shaders have been updated, and if so, kick off a rebuild
+## of the pipelines
+func check_for_shader_changes() -> void:
+    var rebuild = false
+    for path in [sc_shader_file, jf_shader_file, do_shader_file]:
+        var mtime = FileAccess.get_modified_time(path)
+        if mtime > _shader_mtime:
+            rebuild = true
+            _shader_mtime = mtime
+
+    if rebuild:
+        rebuild_pipelines = true
 
 # Called when this resource is constructed.
 func _init():
@@ -286,40 +301,6 @@ func _build_do_pipeline():
     do_shader = rd.shader_create_from_spirv(shader_spirv)
     assert(do_shader.is_valid())
 
-    # create the uniform set
-    assert(scdo_uniform_buffer.is_valid())
-    var uniform = RDUniform.new()
-    uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER
-    uniform.binding = 0
-    uniform.add_id(scdo_uniform_buffer)
-    do_uniform_set = rd.uniform_set_create([uniform], do_shader, 0)
-
-    # Make the framebuffer
-    assert(color_texture.is_valid())
-    assert(depth_texture.is_valid())
-
-    var attachments = []
-    var attachment_format = RDAttachmentFormat.new()
-
-    # Add the draw texture format to the do_framebuffer attachments
-    var texture_format = rd.texture_get_format(color_texture)
-    attachment_format.format = texture_format.format
-    attachment_format.usage_flags = texture_format.usage_bits
-    attachment_format.samples = RenderingDevice.TEXTURE_SAMPLES_1
-    attachments.push_back(attachment_format)
-
-    # Add the depth texture format to the do_framebuffer attachments
-    var depth_format = rd.texture_get_format(depth_texture)
-    attachment_format = RDAttachmentFormat.new()
-    attachment_format.format = depth_format.format
-    attachment_format.usage_flags = depth_format.usage_bits
-    attachment_format.samples = RenderingDevice.TEXTURE_SAMPLES_1
-    attachments.push_back(attachment_format)
-
-    var format = rd.framebuffer_format_create(attachments)
-    do_framebuffer = rd.framebuffer_create([color_texture, depth_texture], format)
-    assert(do_framebuffer.is_valid())
-
     # Create the pipeline
     var blend := RDPipelineColorBlendState.new()
     var blend_attachment := RDPipelineColorBlendStateAttachment.new()
@@ -334,16 +315,7 @@ func _build_do_pipeline():
     stencil_state.front_op_reference = stencil_value
     stencil_state.front_op_fail = RenderingDevice.STENCIL_OP_KEEP
     stencil_state.front_op_pass = RenderingDevice.STENCIL_OP_KEEP
-    do_pipeline = rd.render_pipeline_create(
-        do_shader,
-        format,
-        scdo_vertex_format,
-        RenderingDevice.RENDER_PRIMITIVE_TRIANGLES,
-        RDPipelineRasterizationState.new(),
-        RDPipelineMultisampleState.new(),
-        stencil_state,
-        blend,
-    )
+    do_pipeline = rd.compute_pipeline_create(do_shader)
     assert(do_pipeline.is_valid())
 
 func _build_jf_pipeline():
@@ -438,8 +410,8 @@ func _update_common_buffers():
     assert(scdo_uniform_buffer.is_valid())
 
     # update the render resolution
-    var buffer = PackedFloat32Array([resolution.x, resolution.y, 0, 0])
-    rd.buffer_update(scdo_uniform_buffer, 0, buffer.size(), buffer.to_byte_array())
+    var buffer = PackedFloat32Array([resolution.x, resolution.y, 0, 0]).to_byte_array()
+    rd.buffer_update(scdo_uniform_buffer, 0, buffer.size(), buffer)
 
 # Called by the rendering thread every frame.
 func _render_callback(_p_effect_callback_type, p_render_data):
@@ -501,7 +473,7 @@ func _render_callback(_p_effect_callback_type, p_render_data):
     var draw_list := rd.draw_list_begin(
         sc_framebuffer,
         RenderingDevice.DRAW_CLEAR_COLOR_0,
-        [Color.TRANSPARENT],
+        [Color(-1, -1, -1, -1)],
         1.0,
         0,
         Rect2(),
@@ -548,26 +520,29 @@ func _render_callback(_p_effect_callback_type, p_render_data):
     # run the draw-outline pipeline to render our results to the color image
     # from the real render pipeline.
     # XXX this could be a compute shader
-    var uniform = RDUniform.new()
-    uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER
-    uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
-    uniform.binding = 0
-    uniform.add_id(do_sampler)
-    uniform.add_id(_textures[(passes - 1) & 0x1])
-    var uniform_set = UniformSetCacheRD.get_cache(do_shader, 1, [uniform])
+
+    # Because the color layer can vanish during resize, we just create the
+    # uniform set here.
+    var src_uniform := RDUniform.new()
+    src_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+    src_uniform.binding = 0
+    src_uniform.add_id(_textures[passes & 0x1])
+    var dest_uniform = RDUniform.new()
+    dest_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+    dest_uniform.binding = 1
+    dest_uniform.add_id(color_texture)
+    var uniform_set = UniformSetCacheRD.get_cache(do_shader, 0, [src_uniform, dest_uniform])
     assert(uniform_set.is_valid())
 
-    draw_list = rd.draw_list_begin(
-        do_framebuffer,
-        RenderingDevice.DRAW_DEFAULT_ALL,
-        [],
-        1.0,
-        0,
-        Rect2(),
-        RenderingDevice.TRANSPARENT_PASS)
-    rd.draw_list_bind_render_pipeline(draw_list, do_pipeline)
-    rd.draw_list_bind_vertex_array(draw_list, scdo_vertex_array)
-    rd.draw_list_bind_uniform_set(draw_list, do_uniform_set, 0)
-    rd.draw_list_bind_uniform_set(draw_list, uniform_set, 1)
-    rd.draw_list_draw(draw_list, false, 3) # this is the 
-    rd.draw_list_end()
+    var do_push_constant = PackedVector4Array()
+    do_push_constant.resize(1)
+    do_push_constant[0] = Vector4(1, 1, 0, 1)
+    do_push_constant = do_push_constant.to_byte_array()
+
+
+    compute_list = rd.compute_list_begin()
+    rd.compute_list_bind_compute_pipeline(compute_list, do_pipeline)
+    rd.compute_list_bind_uniform_set(compute_list, uniform_set, 0)
+    rd.compute_list_set_push_constant(compute_list, do_push_constant, do_push_constant.size())
+    rd.compute_list_dispatch(compute_list, x_groups, y_groups, 1)
+    rd.compute_list_end()

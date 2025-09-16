@@ -23,6 +23,7 @@ effect_callback_type = 4
 needs_motion_vectors = false
 needs_normal_roughness = false
 script = ExtResource("2_noarx")
+passes = 3
 metadata/_custom_type_script = "uid://d5yrhticd74c"
 
 [sub_resource type="Compositor" id="Compositor_a0tk4"]
@@ -54,11 +55,15 @@ compositor = SubResource("Compositor_a0tk4")
 fov = 22.0
 
 [node name="VBoxContainer" type="VBoxContainer" parent="."]
-offset_right = 40.0
-offset_bottom = 40.0
-scale = Vector2(0.5, 0.5)
+clip_contents = true
+offset_left = -1200.0
+offset_top = -300.0
+offset_right = -1160.0
+offset_bottom = -260.0
+scale = Vector2(2, 2)
 
 [node name="TextureRect" type="TextureRect" parent="VBoxContainer"]
+visible = false
 layout_mode = 2
 metadata/_edit_use_anchors_ = true
 
