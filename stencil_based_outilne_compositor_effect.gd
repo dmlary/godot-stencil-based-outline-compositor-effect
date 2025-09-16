@@ -26,7 +26,6 @@ var sc_pipeline: RID
 ## draw outline render pipeline
 var do_shader: RID
 var do_pipeline: RID
-var do_sampler: RID
 
 ## Vertex array for the stencil copy and draw outline pipelines
 var scdo_vertex_format : int
@@ -50,11 +49,12 @@ var depth_texture: RID
 var resolution := Vector2i(1, 1)
 
 ## Textures used by both the stencil copy pipeline, and the jump flood pipeline
-var _textures := [RID(), RID()]
+## And one random debug texture we can do whatever we want to
+var _textures := [RID(), RID(), RID()]
 
 ## Exposed Texture2Ds to allow debugging of the various textures used in this
 ## CompositorEffect.
-var debug_textures := [Texture2DRD.new(), Texture2DRD.new()]
+var debug_textures := [Texture2DRD.new(), Texture2DRD.new(), Texture2DRD.new()]
 
 ## mutex for rebuild_pipelines
 var mutex := Mutex.new()
@@ -117,12 +117,6 @@ func _init():
     var buffer = PackedFloat32Array([1, 1, 0, 0]).to_byte_array()
     scdo_uniform_buffer = rd.uniform_buffer_create(buffer.size(), buffer)
 
-    # set up the sampler used by the draw-outline pipeline
-    var sampler_state := RDSamplerState.new()
-    sampler_state.min_filter = RenderingDevice.SAMPLER_FILTER_NEAREST
-    sampler_state.mag_filter = RenderingDevice.SAMPLER_FILTER_NEAREST
-    do_sampler = rd.sampler_create(sampler_state)
-
     ## mark ourselves as dirty so everything else is created when we know the
     ## render resolution
     rebuild_pipelines = true
@@ -145,8 +139,6 @@ func _notification(what):
             rd.free_rid(scdo_vertex_buffer)
         if scdo_uniform_buffer.is_valid():
             rd.free_rid(scdo_uniform_buffer)
-        if do_sampler.is_valid():
-            rd.free_rid(do_sampler)
 
 ## Load GLSL from a specific resource path
 ## Returns:
@@ -301,20 +293,6 @@ func _build_do_pipeline():
     do_shader = rd.shader_create_from_spirv(shader_spirv)
     assert(do_shader.is_valid())
 
-    # Create the pipeline
-    var blend := RDPipelineColorBlendState.new()
-    var blend_attachment := RDPipelineColorBlendStateAttachment.new()
-    blend.attachments.push_back(blend_attachment)
-
-    # If the masked stencil value equals our reference value, write that
-    # fragment
-    var stencil_state = RDPipelineDepthStencilState.new()
-    stencil_state.enable_stencil = true
-    stencil_state.front_op_compare = RenderingDevice.COMPARE_OP_NOT_EQUAL
-    stencil_state.front_op_compare_mask = stencil_mask
-    stencil_state.front_op_reference = stencil_value
-    stencil_state.front_op_fail = RenderingDevice.STENCIL_OP_KEEP
-    stencil_state.front_op_pass = RenderingDevice.STENCIL_OP_KEEP
     do_pipeline = rd.compute_pipeline_create(do_shader)
     assert(do_pipeline.is_valid())
 
@@ -376,7 +354,7 @@ func _build_textures():
     texture_format.width = resolution.x
     texture_format.height = resolution.y
     # XXX may need to explore proper format to use here.
-    texture_format.format = RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT
+    texture_format.format = RenderingDevice.DATA_FORMAT_R32G32B32A32_SFLOAT
     # texture_format.format = RenderingDevice.DATA_FORMAT_R8G8B8A8_UNORM
     texture_format.usage_bits = (
         RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT |

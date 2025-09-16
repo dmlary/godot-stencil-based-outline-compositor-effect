@@ -24,14 +24,7 @@ void main() {
 
     // pull the jump-flood value for this point
     vec4 value = imageLoad(u_src_image, coord);
-    // output_color.rg = value.rg;
-    // output_color.b = 0;
-    if (value.b > 0 && value.b < (1<<15)){
-        output_color.r = 0;
-        output_color.g = 0;
-        // output_color.rg = value.rg/vec2(image_size);
-        output_color.b = (value.b-1.1)/10.0;
-        output_color.a = 1;
+    if (value.b > 0 && value.b < 1700){
         output_color = params.color;
     }
 

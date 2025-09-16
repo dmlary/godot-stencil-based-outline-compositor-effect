@@ -23,7 +23,6 @@ effect_callback_type = 4
 needs_motion_vectors = false
 needs_normal_roughness = false
 script = ExtResource("2_noarx")
-passes = 3
 metadata/_custom_type_script = "uid://d5yrhticd74c"
 
 [sub_resource type="Compositor" id="Compositor_a0tk4"]
@@ -40,7 +39,7 @@ transform = Transform3D(-0.8660254, -0.43301278, 0.25, 0, 0.49999997, 0.86602545
 shadow_enabled = true
 
 [node name="StencilMaterialBox" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.4407363, 0, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.673028, -0.7155442, 1.8366327)
 mesh = SubResource("BoxMesh_jka67")
 surface_material_override/0 = SubResource("StandardMaterial3D_a0tk4")
 
@@ -56,14 +55,11 @@ fov = 22.0
 
 [node name="VBoxContainer" type="VBoxContainer" parent="."]
 clip_contents = true
-offset_left = -1200.0
-offset_top = -300.0
-offset_right = -1160.0
-offset_bottom = -260.0
-scale = Vector2(2, 2)
+offset_right = 40.0
+offset_bottom = 40.0
+scale = Vector2(0.5, 0.5)
 
 [node name="TextureRect" type="TextureRect" parent="VBoxContainer"]
-visible = false
 layout_mode = 2
 metadata/_edit_use_anchors_ = true
 
