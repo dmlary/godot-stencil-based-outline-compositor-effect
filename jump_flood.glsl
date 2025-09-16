@@ -1,6 +1,8 @@
 #[compute]
 #version 450
 
+const float INFINITY = 1.0e10;
+
 // Invocations in the (x, y, z) dimension.
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -18,50 +20,31 @@ layout(push_constant, std430) uniform Params {
 // Arguments:
 //  stride: distance around UV to sample
 void main() {
-    uint stride = params.stride;
     ivec2 image_size = imageSize(u_src_image);
-    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 pos = ivec2(gl_GlobalInvocationID.xy);
 
-    // pull the value for this point
-    vec4 current_value = imageLoad(u_src_image, coord);
+    float best_dist = INFINITY;
+    vec2 best_pos = vec2(0,0);
 
-    // calculate the offsets around this point
-    ivec2 offsets[] = ivec2[](
-        ivec2(-stride, stride),  ivec2(0, stride),  ivec2(stride, stride), 
-        ivec2(-stride, 0     ),                     ivec2(stride, 0     ), 
-        ivec2(-stride, -stride), ivec2(0, -stride), ivec2(stride, -stride)
-    );
-
-    // current_value.rg = ((current_value.rg - coord)*100.0);
-
-    for (int i = 0; i < 8; i++) {
-        ivec2 neighbor_coord = clamp(coord + offsets[i], ivec2(0,0), image_size-1);
-        vec4 neighbor_value = imageLoad(u_src_image, neighbor_coord);
-        if (neighbor_value.b < 0) {
-            continue;
-        }
-
-        // confirmed that neighbor's rg equals its coordinates
-        vec2 coord_delta = coord - neighbor_coord;
-        // vec2 coord_delta = neighbor_coord - coord;
-        // 3432, 2009
-        // current_value.r = coord.x / (3432.0/1.3);
-        // current_value.g = coord.y / (2009/1.3);
-        // current_value.rg = coord.xy/(ivec2(image_size) / 1.3);
-        //
-        // current_value.rg = coord_delta;
-        // current_value.a = 1;
-        //current_value.g = 0;
-
-        float dist = dot(coord_delta, coord_delta);
-        // current_value.b = dist/2.0;
-        // current_value.b = dist/10000.0;
-        if (current_value.b < 0 || dist < current_value.b) {
-            current_value.rg = neighbor_coord;
-            current_value.b = dist;
-            current_value.a = 1;
+    for (int x = -1; x <= 1; x++) {
+        for (int y = -1; y <= 1; y++) {
+            ivec2 offset = ivec2(x * params.stride, y * params.stride);
+            ivec2 neighbor_pos = clamp(
+                    pos + offset, ivec2(0,0), image_size-1);
+            vec4 neighbor_value = imageLoad(u_src_image, neighbor_pos);
+            vec2 pos_delta = pos - neighbor_pos;
+            float dist = dot(pos_delta, pos_delta);
+            if (neighbor_value.r != -1 && dist < best_dist) {
+                best_dist = dist;
+                best_pos = neighbor_pos;
+            }
         }
     }
 
-    imageStore(u_dest_image, coord, current_value.b >= 0 ? current_value : vec4(-1,-1,-1,0));
+    imageStore(
+        u_dest_image,
+        pos,
+        best_dist != INFINITY ?
+            vec4(best_pos.x, best_pos.y, best_dist, 1) :
+            vec4(-1,-1,INFINITY,0));
 }

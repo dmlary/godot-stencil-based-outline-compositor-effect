@@ -473,7 +473,7 @@ func _render_callback(_p_effect_callback_type, p_render_data):
     var draw_list := rd.draw_list_begin(
         sc_framebuffer,
         RenderingDevice.DRAW_CLEAR_COLOR_0,
-        [Color(-1, -1, -1, -1)],
+        [Color(-1, -1, 2**15, -1)],
         1.0,
         0,
         Rect2(),
@@ -516,10 +516,11 @@ func _render_callback(_p_effect_callback_type, p_render_data):
 
     rd.compute_list_end()
 
+    # XXX need to open an issue about resizing debounce because the tepth and
+    # color textures can be freed underneath you.
+    # XXX Performance problems; it looks like we're using a ton of GPU to do
+    #     the jump-flood passes.  See about profiling & speeding up.
 
-    # run the draw-outline pipeline to render our results to the color image
-    # from the real render pipeline.
-    # XXX this could be a compute shader
 
     # Because the color layer can vanish during resize, we just create the
     # uniform set here.

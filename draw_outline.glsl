@@ -26,7 +26,7 @@ void main() {
     vec4 value = imageLoad(u_src_image, coord);
     // output_color.rg = value.rg;
     // output_color.b = 0;
-    if (value.b > 0 && value.b < 3){
+    if (value.b > 0 && value.b < (1<<15)){
         output_color.r = 0;
         output_color.g = 0;
         // output_color.rg = value.rg/vec2(image_size);
