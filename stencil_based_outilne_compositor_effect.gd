@@ -1,6 +1,9 @@
 extends CompositorEffect
 class_name StencilBasedOutlineCompositorEffect
 
+## Number of jump-flood passes to run to make the outline
+@export var passes := 4
+
 ## GLSL sc_shader source file
 @export_file("*.glsl") var glsl_shader_file = "res://./jump_flood.glsl"
 
@@ -154,7 +157,7 @@ func _build_sc_shader():
 
         void main() {
             vec2 UV = gl_FragCoord.xy / resolution;
-            frag_color.rgba = vec4(UV.x, UV.y, 1, 1);
+            frag_color.rgba = vec4(UV.x, UV.y, 0, 1);
         }
     """
     var shader_spirv: RDShaderSPIRV = rd.shader_compile_spirv_from_source(source)
@@ -297,7 +300,8 @@ func _build_textures(size: Vector2i):
     texture_format.texture_type = RenderingDevice.TEXTURE_TYPE_2D
     texture_format.width = size.x
     texture_format.height = size.y
-    texture_format.format = RenderingDevice.DATA_FORMAT_R8G8B8A8_UNORM
+    # XXX may need to explore proper format to use here.
+    texture_format.format = RenderingDevice.DATA_FORMAT_R16G16B16A16_SFLOAT
     texture_format.usage_bits = (
         RenderingDevice.TEXTURE_USAGE_COLOR_ATTACHMENT_BIT |
         RenderingDevice.TEXTURE_USAGE_SAMPLING_BIT |
@@ -427,7 +431,7 @@ func _render_callback(_p_effect_callback_type, p_render_data):
     var draw_list := rd.draw_list_begin(
         sc_framebuffer,
         RenderingDevice.DRAW_CLEAR_COLOR_0,
-        [Color.BLACK],
+        [Color.TRANSPARENT],
         1.0,
         0,
         Rect2(),
@@ -442,6 +446,19 @@ func _render_callback(_p_effect_callback_type, p_render_data):
     var x_groups : int = (resolution.x - 1) / 8 + 1
     @warning_ignore("integer_division")
     var y_groups : int = (resolution.y - 1) / 8 + 1
+    var push_constant := PackedByteArray()
+    push_constant.resize(16) # minimum size
+    push_constant.encode_u32(0, passes)
+
+    # XXX next steps:
+    # - reduce down to two uniform sets:
+    #       (src = 0, dest = 1), and (src = 1, dest = 0)
+    # - change glsl shader to do only a single pass at a time
+    # - create new rendering pipeline to draw outline for only those pixels not
+    #   marked for outline in the stencil buffer
+    # XXX Maybe write the outline back to the color layer instead of an output
+    #     texture that needs to be hooked to a colorRect.
+
     var compute_list := rd.compute_list_begin()
     rd.compute_list_bind_compute_pipeline(compute_list, jf_pipeline)
     rd.compute_list_bind_uniform_set(
@@ -452,5 +469,6 @@ func _render_callback(_p_effect_callback_type, p_render_data):
         compute_list,
         jf_uniform_sets[0][1],
         1)
+    rd.compute_list_set_push_constant(compute_list, push_constant, push_constant.size())
     rd.compute_list_dispatch(compute_list, x_groups, y_groups, 1)
     rd.compute_list_end()
