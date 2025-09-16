@@ -31,7 +31,7 @@ var sc_pipeline: RID
 ## Jump-flood stuffs
 var jf_shader: RID
 var jf_pipeline: RID
-var jf_uniform_sets := [[], []]
+var jf_uniform_sets := [RID(), RID()]
 
 ## cached copy of the depth/stencil texture RID to detect when it changes
 var depth_texture: RID
@@ -92,7 +92,6 @@ func _init():
     uniform.binding = 0
     uniform.add_id(sc_uniform_buffer)
     sc_uniform_set = rd.uniform_set_create([uniform], sc_shader, 0)
-
 
 func _load_glsl_from_file(path) -> Variant:
     var lines = []
@@ -211,32 +210,35 @@ func _build_jf_uniform_sets():
     # not explicitly freeing the old sets here because they should have been
     # freed when the shader or textures were freed
 
-    for group in [[0, 0, 1], [0, 1, 0]]:
+    for group in [[0, _textures[0], _textures[1]],
+                  [1, _textures[1], _textures[0]]]:
         var pass_number = group[0]
-        var src_texture: RID = _textures[group[0]]
-        var dest_texture: RID = _textures[group[1]]
+        var src_texture = group[1]
+        var dest_texture = group[2]
 
         # clear the pass uniform sets
         jf_uniform_sets[pass_number] = [RID(), RID()]
 
-        var uniform := RDUniform.new()
-        uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
-        uniform.binding = 0
-        uniform.add_id(src_texture)
-        jf_uniform_sets[pass_number][0] = rd.uniform_set_create(
-            [uniform], jf_shader, 0)
+        var src_uniform := RDUniform.new()
+        src_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+        src_uniform.binding = 0
+        src_uniform.add_id(src_texture)
 
-        uniform = RDUniform.new()
-        uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
-        uniform.binding = 0
-        uniform.add_id(dest_texture)
-        jf_uniform_sets[pass_number][1] = rd.uniform_set_create(
-            [uniform], jf_shader, 0)
+        var dest_uniform = RDUniform.new()
+        dest_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
+        dest_uniform.binding = 1
+        dest_uniform.add_id(dest_texture)
+
+        jf_uniform_sets[pass_number] = rd.uniform_set_create(
+            [src_uniform, dest_uniform], jf_shader, 0)
 
 # System notifications, we want to react on the notification that
 # alerts us we are about to be destroyed.
 func _notification(what):
     if what == NOTIFICATION_PREDELETE:
+        if jf_shader.is_valid():
+            # freeing the shader will free the pipeline and the uniform sets
+            rd.free_rid(jf_shader)
         if sc_pipeline.is_valid():
             rd.free_rid(sc_pipeline)
         if sc_shader.is_valid():
@@ -428,6 +430,7 @@ func _render_callback(_p_effect_callback_type, p_render_data):
     # from the real sc_pipeline.
     assert(sc_framebuffer.is_valid())
     assert(sc_pipeline.is_valid())
+
     var draw_list := rd.draw_list_begin(
         sc_framebuffer,
         RenderingDevice.DRAW_CLEAR_COLOR_0,
@@ -448,12 +451,10 @@ func _render_callback(_p_effect_callback_type, p_render_data):
     var y_groups : int = (resolution.y - 1) / 8 + 1
     var push_constant := PackedByteArray()
     push_constant.resize(16) # minimum size
-    push_constant.encode_u32(0, passes)
+
+
 
     # XXX next steps:
-    # - reduce down to two uniform sets:
-    #       (src = 0, dest = 1), and (src = 1, dest = 0)
-    # - change glsl shader to do only a single pass at a time
     # - create new rendering pipeline to draw outline for only those pixels not
     #   marked for outline in the stencil buffer
     # XXX Maybe write the outline back to the color layer instead of an output
@@ -461,14 +462,17 @@ func _render_callback(_p_effect_callback_type, p_render_data):
 
     var compute_list := rd.compute_list_begin()
     rd.compute_list_bind_compute_pipeline(compute_list, jf_pipeline)
-    rd.compute_list_bind_uniform_set(
-        compute_list,
-        jf_uniform_sets[0][0],
-        0)
-    rd.compute_list_bind_uniform_set(
-        compute_list,
-        jf_uniform_sets[0][1],
-        1)
-    rd.compute_list_set_push_constant(compute_list, push_constant, push_constant.size())
-    rd.compute_list_dispatch(compute_list, x_groups, y_groups, 1)
+
+    for i in range(passes):
+        var stride = (1<<(passes-i-1))
+        push_constant.encode_u32(0, stride)
+        rd.compute_list_set_push_constant(compute_list, push_constant, push_constant.size())
+
+        var uniform_set = jf_uniform_sets[i & 0x1]
+        rd.compute_list_bind_uniform_set(
+            compute_list,
+            uniform_set,
+            0)
+        rd.compute_list_dispatch(compute_list, x_groups, y_groups, 1)
+
     rd.compute_list_end()

@@ -1,4 +1,4 @@
-[gd_scene load_steps=10 format=3 uid="uid://5q7qw3rqscd7"]
+[gd_scene load_steps=9 format=3 uid="uid://5q7qw3rqscd7"]
 
 [ext_resource type="Script" uid="uid://2hwbm5ni3g8m" path="res://node_3d.gd" id="1_noarx"]
 [ext_resource type="Script" uid="uid://d5yrhticd74c" path="res://stencil_based_outilne_compositor_effect.gd" id="2_noarx"]
@@ -15,9 +15,6 @@ stencil_flags = 2
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_jka67"]
 albedo_color = Color(0, 0, 0, 1)
 
-[sub_resource type="Environment" id="Environment_a0tk4"]
-fog_enabled = true
-
 [sub_resource type="CompositorEffect" id="CompositorEffect_a0tk4"]
 resource_local_to_scene = false
 resource_name = ""
@@ -31,9 +28,10 @@ metadata/_custom_type_script = "uid://d5yrhticd74c"
 [sub_resource type="Compositor" id="Compositor_a0tk4"]
 compositor_effects = Array[CompositorEffect]([SubResource("CompositorEffect_a0tk4")])
 
-[node name="Node3D" type="Node3D" node_paths=PackedStringArray("texture_rect", "camera")]
+[node name="Node3D" type="Node3D" node_paths=PackedStringArray("texture_rect", "texture_rect2", "camera")]
 script = ExtResource("1_noarx")
-texture_rect = NodePath("TextureRect")
+texture_rect = NodePath("VBoxContainer/TextureRect")
+texture_rect2 = NodePath("VBoxContainer/TextureRect2")
 camera = NodePath("Camera3D")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
@@ -52,11 +50,18 @@ surface_material_override/0 = SubResource("StandardMaterial3D_jka67")
 
 [node name="Camera3D" type="Camera3D" parent="."]
 transform = Transform3D(0.7477981, -0.12668309, 0.651728, 0, 0.9816271, 0.19080898, -0.66392624, -0.14268659, 0.73405886, 6.5122004, 2.4694471, 9.449494)
-environment = SubResource("Environment_a0tk4")
 compositor = SubResource("Compositor_a0tk4")
 fov = 22.0
 
-[node name="TextureRect" type="TextureRect" parent="."]
+[node name="VBoxContainer" type="VBoxContainer" parent="."]
 offset_right = 40.0
 offset_bottom = 40.0
+scale = Vector2(0.5, 0.5)
+
+[node name="TextureRect" type="TextureRect" parent="VBoxContainer"]
+layout_mode = 2
+metadata/_edit_use_anchors_ = true
+
+[node name="TextureRect2" type="TextureRect" parent="VBoxContainer"]
+layout_mode = 2
 metadata/_edit_use_anchors_ = true

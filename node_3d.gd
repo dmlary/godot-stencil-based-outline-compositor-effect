@@ -1,6 +1,7 @@
 extends Node3D
 
 @export var texture_rect: TextureRect
+@export var texture_rect2: TextureRect
 @export var camera: Camera3D
 @export var mesh: MeshInstance3D
 
@@ -14,7 +15,8 @@ var timer : Timer
 func _ready():
     # set the texture in the TextureRect to use the output texture of the
     # CompositorEffect
-    texture_rect.texture = outline_effect.debug_textures[1]
+    texture_rect.texture = outline_effect.debug_textures[0]
+    texture_rect2.texture = outline_effect.debug_textures[1]
 
     # create a timer to check for changes to the shader source file
     timer = Timer.new()
