@@ -1,7 +1,6 @@
 #[vertex]
 #version 450 core
 layout(location = 0) in vec3 vertex_attrib;
-layout(r32f, set = 1, binding = 0) uniform image2D u_jf_result;
 
 void main()
 {
@@ -14,9 +13,17 @@ layout (location = 0) out vec4 frag_color;
 layout (set = 0, binding = 0) uniform FrameData {
     vec2 resolution;
 };
+layout(set = 1, binding = 0) uniform sampler2D u_jf_result;
 
 void main()
 {
     vec2 UV = gl_FragCoord.xy / resolution;
-    frag_color.rgba = vec4(1, 1, 0, 1);
+    vec4 value = texture(u_jf_result, UV);
+    frag_color = value;
+
+    // if (value.a > 0.5) {
+    //     frag_color.rgba = vec4(1, 1, 0, 1);
+    // } else {
+    //     frag_color.b = 1;
+    // }
 }

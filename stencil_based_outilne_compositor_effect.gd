@@ -19,15 +19,16 @@ var rd: RenderingDevice
 
 ## stencil copy shader render pipeline
 var sc_shader: RID
+var sc_uniform_set: RID
 var sc_framebuffer: RID
 var sc_pipeline: RID
-var sc_uniform_set: RID
 
 ## draw outline render pipeline
 var do_shader: RID
+var do_uniform_set: RID
 var do_framebuffer: RID
-var do_framebuffer_format: int
 var do_pipeline: RID
+var do_sampler: RID
 
 ## Vertex array for the stencil copy and draw outline pipelines
 var scdo_vertex_format : int
@@ -43,6 +44,8 @@ var jf_shader: RID
 var jf_pipeline: RID
 var jf_uniform_sets := [RID(), RID()]
 
+## cached copy of the color texture RID to detect when it changes
+var color_texture: RID
 ## cached copy of the depth/stencil texture RID to detect when it changes
 var depth_texture: RID
 ## cached render resolution; updated in _render_callback()
@@ -71,7 +74,6 @@ func _init():
     # Grab the rendering device
     rd = RenderingServer.get_rendering_device()
 
-    _build_jf_shader_and_pipeline()
     ## We create the vertex & index arrays to draw a full-screen quad.
 
     # build the vertex format
@@ -100,6 +102,16 @@ func _init():
     var buffer = PackedFloat32Array([1, 1, 0, 0]).to_byte_array()
     scdo_uniform_buffer = rd.uniform_buffer_create(buffer.size(), buffer)
 
+    # set up the sampler used by the draw-outline pipeline
+    var sampler_state := RDSamplerState.new()
+    sampler_state.min_filter = RenderingDevice.SAMPLER_FILTER_NEAREST
+    sampler_state.mag_filter = RenderingDevice.SAMPLER_FILTER_NEAREST
+    do_sampler = rd.sampler_create(sampler_state)
+
+    ## mark ourselves as dirty so everything else is created when we know the
+    ## render resolution
+    rebuild_pipelines = true
+
 # System notifications, we want to react on the notification that
 # alerts us we are about to be destroyed.
 func _notification(what):
@@ -118,6 +130,8 @@ func _notification(what):
             rd.free_rid(scdo_vertex_buffer)
         if scdo_uniform_buffer.is_valid():
             rd.free_rid(scdo_uniform_buffer)
+        if do_sampler.is_valid():
+            rd.free_rid(do_sampler)
 
 ## Load GLSL from a specific resource path
 ## Returns:
@@ -185,6 +199,7 @@ func _build_sc_pipeline():
     print("building stencil copy pipeline")
     if sc_shader.is_valid():
         rd.free_rid(sc_shader)
+        sc_shader = RID()
 
     # load the shader
     var shader_spirv = _load_glsl_from_file(sc_shader_file)
@@ -236,21 +251,10 @@ func _build_sc_pipeline():
     # If the masked stencil value equals our reference value, write that
     # fragment
     var stencil_state = RDPipelineDepthStencilState.new()
-    # stencil_state.enable_stencil = true
-    # stencil_state.front_op_compare = RenderingDevice.COMPARE_OP_EQUAL
-    # stencil_state.front_op_compare_mask = stencil_mask
-    # stencil_state.front_op_reference = stencil_value
-    # stencil_state.front_op_compare_mask = 0x1
-    # stencil_state.front_op_write_mask = 0
-    # stencil_state.front_op_reference = 1
-    # stencil_state.front_op_fail = RenderingDevice.STENCIL_OP_KEEP
-    # stencil_state.front_op_pass = RenderingDevice.STENCIL_OP_KEEP
-
     stencil_state.enable_stencil = true
     stencil_state.front_op_compare = RenderingDevice.COMPARE_OP_EQUAL
-    stencil_state.front_op_compare_mask = 0x1
-    stencil_state.front_op_write_mask = 0
-    stencil_state.front_op_reference = 1
+    stencil_state.front_op_compare_mask = stencil_mask
+    stencil_state.front_op_reference = stencil_value
     stencil_state.front_op_fail = RenderingDevice.STENCIL_OP_KEEP
     stencil_state.front_op_pass = RenderingDevice.STENCIL_OP_KEEP
     sc_pipeline = rd.render_pipeline_create(
@@ -264,47 +268,114 @@ func _build_sc_pipeline():
         blend,
     )
     assert(sc_pipeline.is_valid())
-    print("sc_shader ", sc_shader,
-        ", sc_framebuffer ", sc_framebuffer,
-        ", sc_pipeline ", sc_pipeline)
 
-func _update_common_buffers():
-    print("updating common uniform buffer");
+## Build the draw-outline render pipeline
+## This pipeline will use the stencil buffer to draw the generated outlines
+## to the frame being rendered.
+func _build_do_pipeline():
+    print("building draw-outline pipeline")
+    if do_shader.is_valid():
+        rd.free_rid(do_shader)
+        do_shader = RID()
+
+    # load the shader
+    var shader_spirv = _load_glsl_from_file(do_shader_file)
+    if not shader_spirv:
+        push_error("failed to load stencil copy shader")
+        return
+    do_shader = rd.shader_create_from_spirv(shader_spirv)
+    assert(do_shader.is_valid())
+
+    # create the uniform set
     assert(scdo_uniform_buffer.is_valid())
-    var buffer = PackedFloat32Array([resolution.x, resolution.y, 0, 0])
-    rd.buffer_update(scdo_uniform_buffer, 0, buffer.size(), buffer.to_byte_array())
+    var uniform = RDUniform.new()
+    uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_UNIFORM_BUFFER
+    uniform.binding = 0
+    uniform.add_id(scdo_uniform_buffer)
+    do_uniform_set = rd.uniform_set_create([uniform], do_shader, 0)
 
-func _build_jf_shader_and_pipeline():
-    print("building jump flood shader")
+    # Make the framebuffer
+    assert(color_texture.is_valid())
+    assert(depth_texture.is_valid())
 
+    var attachments = []
+    var attachment_format = RDAttachmentFormat.new()
+
+    # Add the draw texture format to the do_framebuffer attachments
+    var texture_format = rd.texture_get_format(color_texture)
+    attachment_format.format = texture_format.format
+    attachment_format.usage_flags = texture_format.usage_bits
+    attachment_format.samples = RenderingDevice.TEXTURE_SAMPLES_1
+    attachments.push_back(attachment_format)
+
+    # Add the depth texture format to the do_framebuffer attachments
+    var depth_format = rd.texture_get_format(depth_texture)
+    attachment_format = RDAttachmentFormat.new()
+    attachment_format.format = depth_format.format
+    attachment_format.usage_flags = depth_format.usage_bits
+    attachment_format.samples = RenderingDevice.TEXTURE_SAMPLES_1
+    attachments.push_back(attachment_format)
+
+    var format = rd.framebuffer_format_create(attachments)
+    do_framebuffer = rd.framebuffer_create([color_texture, depth_texture], format)
+    assert(do_framebuffer.is_valid())
+
+    # Create the pipeline
+    var blend := RDPipelineColorBlendState.new()
+    var blend_attachment := RDPipelineColorBlendStateAttachment.new()
+    blend.attachments.push_back(blend_attachment)
+
+    # If the masked stencil value equals our reference value, write that
+    # fragment
+    var stencil_state = RDPipelineDepthStencilState.new()
+    stencil_state.enable_stencil = true
+    stencil_state.front_op_compare = RenderingDevice.COMPARE_OP_NOT_EQUAL
+    stencil_state.front_op_compare_mask = stencil_mask
+    stencil_state.front_op_reference = stencil_value
+    stencil_state.front_op_fail = RenderingDevice.STENCIL_OP_KEEP
+    stencil_state.front_op_pass = RenderingDevice.STENCIL_OP_KEEP
+    do_pipeline = rd.render_pipeline_create(
+        do_shader,
+        format,
+        scdo_vertex_format,
+        RenderingDevice.RENDER_PRIMITIVE_TRIANGLES,
+        RDPipelineRasterizationState.new(),
+        RDPipelineMultisampleState.new(),
+        stencil_state,
+        blend,
+    )
+    assert(do_pipeline.is_valid())
+
+func _build_jf_pipeline():
+    print("building jump flood pipeline")
 
     if jf_shader.is_valid():
         rd.free_rid(jf_shader)
         jf_shader = RID()
-        # freeing the jf_shader will also free the jf_pipeline that was
-        # dependent on the shader
-        jf_pipeline = RID()
 
-    # load the jf_shader
+    # load the jump-flood shader
     var shader_spirv = _load_glsl_from_file(jf_shader_file)
     if not shader_spirv:
         push_error("failed to load jump flood shader")
         return
     jf_shader = rd.shader_create_from_spirv(shader_spirv)
     assert(jf_shader.is_valid())
+
+    # build the pipeline
     jf_pipeline = rd.compute_pipeline_create(jf_shader)
+    assert(jf_pipeline.is_valid())
 
-func _build_jf_uniform_sets():
-    # not explicitly freeing the old sets here because they should have been
-    # freed when the shader or textures were freed
-
+    # now build the uniform sets we'll use through the passes
+    assert(_textures[0].is_valid())
+    assert(_textures[1].is_valid())
     for group in [[0, _textures[0], _textures[1]],
                   [1, _textures[1], _textures[0]]]:
         var pass_number = group[0]
         var src_texture = group[1]
         var dest_texture = group[2]
 
-        # clear the pass uniform sets
+        # clear the pass uniform sets; they were already freed when the shader
+        # was destroyed.
         jf_uniform_sets[pass_number] = [RID(), RID()]
 
         var src_uniform := RDUniform.new()
@@ -320,15 +391,12 @@ func _build_jf_uniform_sets():
         jf_uniform_sets[pass_number] = rd.uniform_set_create(
             [src_uniform, dest_uniform], jf_shader, 0)
 
-
-
 ## Create a new color texture to use as the output for our render sc_pipeline.
 ## Note: this texture must be the same size as the depth texture, so we create
 ## it on demand.
 func _build_textures():
     var count = _textures.size()
     print("building ", count, " output textures ", resolution)
-
 
     # set up the texture format
     var texture_format = RDTextureFormat.new()
@@ -363,6 +431,16 @@ func _build_textures():
         if old_rid.is_valid():
             rd.free_rid(old_rid)
 
+## Update uniform buffer shared between the stencil-copy and draw-outline
+## pipelines
+func _update_common_buffers():
+    print("updating common uniform buffer");
+    assert(scdo_uniform_buffer.is_valid())
+
+    # update the render resolution
+    var buffer = PackedFloat32Array([resolution.x, resolution.y, 0, 0])
+    rd.buffer_update(scdo_uniform_buffer, 0, buffer.size(), buffer.to_byte_array())
+
 # Called by the rendering thread every frame.
 func _render_callback(_p_effect_callback_type, p_render_data):
     var rebuild := false
@@ -394,27 +472,32 @@ func _render_callback(_p_effect_callback_type, p_render_data):
     #       because the texture and depth texture must be the same resolution
     #       to create a sc_framebuffer later.  If they are not the same size, we
     #       get an error in _build_framebuffer()
-    if not _textures[0].is_valid() or resolution != size:
+    if resolution != size:
         resolution = size
         rebuild = true
 
-    # if the depth texture has changed, we'll need to rebuild the sc_framebuffer
+    # if the depth texture has changed, we'll need to rebuild the pipelines
+    var color_tex = render_scene_buffers.get_color_layer(0)
+    if color_tex != color_texture:
+        color_texture = color_tex
+        rebuild = true
+
+    # if the depth texture has changed, we'll need to rebuild the pipelines
     var depth_tex = render_scene_buffers.get_depth_layer(0)
     if depth_tex != depth_texture:
         depth_texture = depth_tex
         rebuild = true
 
+
     if rebuild:
         _build_textures()
         _update_common_buffers()
         _build_sc_pipeline()
-        _build_jf_uniform_sets()
+        _build_jf_pipeline()
+        _build_do_pipeline()
 
     # Perform the draw using the rendering sc_pipeline, and the stencil buffer
-    # from the real sc_pipeline.
-    assert(sc_framebuffer.is_valid())
-    assert(sc_pipeline.is_valid())
-
+    # from the real render pipeline.
     var draw_list := rd.draw_list_begin(
         sc_framebuffer,
         RenderingDevice.DRAW_CLEAR_COLOR_0,
@@ -429,14 +512,13 @@ func _render_callback(_p_effect_callback_type, p_render_data):
     rd.draw_list_draw(draw_list, false, 3) # this is the 
     rd.draw_list_end()
 
+    # Run jump-flood algorithm to build up the outline
     @warning_ignore("integer_division")
     var x_groups : int = (resolution.x - 1) / 8 + 1
     @warning_ignore("integer_division")
     var y_groups : int = (resolution.y - 1) / 8 + 1
     var push_constant := PackedByteArray()
     push_constant.resize(16) # minimum size
-
-
 
     # XXX next steps:
     # - create new rendering pipeline to draw outline for only those pixels not
@@ -452,11 +534,40 @@ func _render_callback(_p_effect_callback_type, p_render_data):
         push_constant.encode_u32(0, stride)
         rd.compute_list_set_push_constant(compute_list, push_constant, push_constant.size())
 
-        var uniform_set = jf_uniform_sets[i & 0x1]
+        # pick the uniform set based on the pass number so we ping-pong between
+        # the two textures.
         rd.compute_list_bind_uniform_set(
             compute_list,
-            uniform_set,
+            jf_uniform_sets[i & 0x1],
             0)
         rd.compute_list_dispatch(compute_list, x_groups, y_groups, 1)
 
     rd.compute_list_end()
+
+
+    # run the draw-outline pipeline to render our results to the color image
+    # from the real render pipeline.
+    # XXX this could be a compute shader
+    var uniform = RDUniform.new()
+    uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER
+    uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_SAMPLER_WITH_TEXTURE
+    uniform.binding = 0
+    uniform.add_id(do_sampler)
+    uniform.add_id(_textures[(passes - 1) & 0x1])
+    var uniform_set = UniformSetCacheRD.get_cache(do_shader, 1, [uniform])
+    assert(uniform_set.is_valid())
+
+    draw_list = rd.draw_list_begin(
+        do_framebuffer,
+        RenderingDevice.DRAW_DEFAULT_ALL,
+        [],
+        1.0,
+        0,
+        Rect2(),
+        RenderingDevice.TRANSPARENT_PASS)
+    rd.draw_list_bind_render_pipeline(draw_list, do_pipeline)
+    rd.draw_list_bind_vertex_array(draw_list, scdo_vertex_array)
+    rd.draw_list_bind_uniform_set(draw_list, do_uniform_set, 0)
+    rd.draw_list_bind_uniform_set(draw_list, uniform_set, 1)
+    rd.draw_list_draw(draw_list, false, 3) # this is the 
+    rd.draw_list_end()
