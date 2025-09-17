@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://dl2o7jh671fwq"
+path="res://.godot/imported/stencil_copy.glsl-df268dfdeea93acc6423ea193b601b13.res"
+
+[deps]
+
+source_file="res://stencil_based_outline_compositor_effect/shaders/stencil_copy.glsl"
+dest_files=["res://.godot/imported/stencil_copy.glsl-df268dfdeea93acc6423ea193b601b13.res"]
+
+[params]
+

@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://k5p7bgnvktli"
+path="res://.godot/imported/draw_outline.glsl-04896d91629dbca9d85ee875e035e499.res"
+
+[deps]
+
+source_file="res://stencil_based_outline_compositor_effect/shaders/draw_outline.glsl"
+dest_files=["res://.godot/imported/draw_outline.glsl-04896d91629dbca9d85ee875e035e499.res"]
+
+[params]
+

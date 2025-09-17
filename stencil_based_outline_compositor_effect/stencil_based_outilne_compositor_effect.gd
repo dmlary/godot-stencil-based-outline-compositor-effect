@@ -1,9 +1,6 @@
 extends CompositorEffect
 class_name StencilBasedOutlineCompositorEffect
 
-## Number of jump-flood _passes to run to make the outline
-var _passes := 4
-
 ## Color of outlines
 @export var outline_color := Color.GOLD
 
@@ -24,10 +21,19 @@ var _passes := 4
 ## Stencil mask to use when checking the stencil value
 @export var stencil_mask := 1
 
+## Enable hot-reload of shaders; only set this if you're actively editing the
+## shaders.
+var _hot_reload := false
+
+## Number of jump-flood _passes to run to make the outline; set in thickness
+## setter
+var _passes := 1
+
 ## GLSL shader definitions for each of our shaders
-var jf_shader_file = "res://./jump_flood.glsl"
-var sc_shader_file = "res://./stencil_copy.glsl"
-var do_shader_file = "res://./draw_outline.glsl"
+var _shader_dir = get_script().get_path().get_base_dir() + "/shaders/"
+var jf_shader_file = _shader_dir + "jump_flood.glsl"
+var sc_shader_file = _shader_dir + "stencil_copy.glsl"
+var do_shader_file = _shader_dir + "draw_outline.glsl"
 
 var rd: RenderingDevice
 
@@ -159,9 +165,13 @@ func _notification(what):
 ##  false: failed to load or compile shader
 ##  RDShaderSPIRV: compiled shader
 func _load_glsl_from_file(path) -> Variant:
+    # hot-reload of shaders via RDShaderFile does not work by default.  See
+    # https://github.com/godotengine/godot/issues/110468 for details.
+    if not _hot_reload:
+        var shader_file: RDShaderFile = ResourceLoader.load(path)
+        return shader_file.get_spirv()
 
-    # Because RDShaderFile does not support hot-reload, manually do hot-reload
-    # using RDShaderSource
+    # Manually reload & compile the shader using RDShaderSource
     var lines = []
     if not FileAccess.file_exists(path):
         push_error("_load_glsl_from_file() file not found: ", path)

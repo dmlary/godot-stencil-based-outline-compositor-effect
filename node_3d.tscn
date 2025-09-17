@@ -1,7 +1,7 @@
 [gd_scene load_steps=9 format=3 uid="uid://5q7qw3rqscd7"]
 
 [ext_resource type="Script" uid="uid://2hwbm5ni3g8m" path="res://node_3d.gd" id="1_noarx"]
-[ext_resource type="Script" uid="uid://d5yrhticd74c" path="res://stencil_based_outilne_compositor_effect.gd" id="2_noarx"]
+[ext_resource type="Script" uid="uid://d5yrhticd74c" path="res://stencil_based_outline_compositor_effect/stencil_based_outilne_compositor_effect.gd" id="2_noarx"]
 
 [sub_resource type="BoxMesh" id="BoxMesh_jka67"]
 
@@ -25,7 +25,7 @@ access_resolved_depth = false
 needs_motion_vectors = false
 needs_normal_roughness = false
 script = ExtResource("2_noarx")
-thickness = 81
+thickness = 11
 metadata/_custom_type_script = "uid://d5yrhticd74c"
 
 [sub_resource type="Compositor" id="Compositor_a0tk4"]
