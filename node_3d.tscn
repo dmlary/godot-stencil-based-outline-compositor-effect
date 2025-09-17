@@ -18,12 +18,14 @@ albedo_color = Color(0, 0, 0, 1)
 [sub_resource type="CompositorEffect" id="CompositorEffect_a0tk4"]
 resource_local_to_scene = false
 resource_name = ""
-enabled = false
-effect_callback_type = 4
+enabled = true
+effect_callback_type = 3
+access_resolved_color = false
+access_resolved_depth = false
 needs_motion_vectors = false
 needs_normal_roughness = false
 script = ExtResource("2_noarx")
-passes = 7
+thickness = 81
 metadata/_custom_type_script = "uid://d5yrhticd74c"
 
 [sub_resource type="Compositor" id="Compositor_a0tk4"]

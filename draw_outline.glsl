@@ -11,6 +11,7 @@ layout(rgba16f, set = 0, binding = 1) uniform image2D u_dest_image;
 // Our push PushConstant.
 layout(push_constant, std430) uniform Params {
     vec4 color;
+    uint dist;
 } params;
 
 // perform a single pass of jump flood from image_0 to image_1
@@ -24,7 +25,7 @@ void main() {
 
     // pull the jump-flood value for this point
     vec4 value = imageLoad(u_src_image, coord);
-    if (value.b > 0 && value.b < 1000){
+    if (value.b > 0 && value.b <= params.dist){
         output_color = params.color;
     }
 

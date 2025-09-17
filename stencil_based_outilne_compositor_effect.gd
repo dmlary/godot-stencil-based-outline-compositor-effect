@@ -1,8 +1,22 @@
 extends CompositorEffect
 class_name StencilBasedOutlineCompositorEffect
 
-## Number of jump-flood passes to run to make the outline
-@export var passes := 4
+## Number of jump-flood _passes to run to make the outline
+var _passes := 4
+
+## Color of outlines
+@export var outline_color := Color.GOLD
+
+## Thickness of outline in pixels
+@export_range(0, 181) var thickness : int= 4 :
+    set(value):
+        value = clampi(value, 0, 181)
+        thickness = value
+        _passes = 0
+        while value > 0:
+            value = value >> 1
+            _passes += 1
+        print("thickness ", thickness, ", _passes ", _passes)
 
 ## Stencil value that denotes pixels to be outlined
 @export var stencil_value := 1
@@ -315,7 +329,7 @@ func _build_jf_pipeline():
     jf_pipeline = rd.compute_pipeline_create(jf_shader)
     assert(jf_pipeline.is_valid())
 
-    # now build the uniform sets we'll use through the passes
+    # now build the uniform sets we'll use through the _passes
     assert(_textures[0].is_valid())
     assert(_textures[1].is_valid())
     for group in [[0, _textures[0], _textures[1]],
@@ -479,8 +493,8 @@ func _render_callback(_p_effect_callback_type, p_render_data):
     var compute_list := rd.compute_list_begin()
     rd.compute_list_bind_compute_pipeline(compute_list, jf_pipeline)
 
-    for i in range(passes):
-        var stride = (1<<(passes-i-1))
+    for i in range(_passes):
+        var stride = (1<<(_passes-i-1))
         push_constant.encode_u32(0, stride)
         rd.compute_list_set_push_constant(compute_list, push_constant, push_constant.size())
 
@@ -497,7 +511,7 @@ func _render_callback(_p_effect_callback_type, p_render_data):
     # XXX need to open an issue about resizing debounce because the tepth and
     # color textures can be freed underneath you.
     # XXX Performance problems; it looks like we're using a ton of GPU to do
-    #     the jump-flood passes.  See about profiling & speeding up.
+    #     the jump-flood _passes.  See about profiling & speeding up.
 
 
     # Because the color layer can vanish during resize, we just create the
@@ -505,7 +519,7 @@ func _render_callback(_p_effect_callback_type, p_render_data):
     var src_uniform := RDUniform.new()
     src_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
     src_uniform.binding = 0
-    src_uniform.add_id(_textures[passes & 0x1])
+    src_uniform.add_id(_textures[_passes & 0x1])
     var dest_uniform = RDUniform.new()
     dest_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
     dest_uniform.binding = 1
@@ -513,10 +527,18 @@ func _render_callback(_p_effect_callback_type, p_render_data):
     var uniform_set = UniformSetCacheRD.get_cache(do_shader, 0, [src_uniform, dest_uniform])
     assert(uniform_set.is_valid())
 
-    var do_push_constant = PackedVector4Array()
-    do_push_constant.resize(1)
-    do_push_constant[0] = Vector4(1, 1, 0, 1)
-    do_push_constant = do_push_constant.to_byte_array()
+    var do_push_constant = PackedByteArray()
+    do_push_constant.resize(32)
+    do_push_constant.encode_float(0, outline_color.r)
+    do_push_constant.encode_float(4, outline_color.g)
+    do_push_constant.encode_float(8, outline_color.b)
+    do_push_constant.encode_float(12, outline_color.a)
+    do_push_constant.encode_u32(16, thickness**2)
+
+    # # var do_push_constant = PackedVector4Array()
+    # do_push_constant.resize(1)
+    # do_push_constant[0] = Vector4(1, 1, 0, 1)
+    # do_push_constant = do_push_constant.to_byte_array()
 
 
     compute_list = rd.compute_list_begin()
