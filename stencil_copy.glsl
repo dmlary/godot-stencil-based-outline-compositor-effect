@@ -15,13 +15,7 @@ layout (set = 0, binding = 0) uniform FrameData {
 };
 
 void main() {
-    // Initialize all pixels with their UV, and their distance (0) from nearest
-    // set value.  Alpha channel denotes there is a value here.
-    vec2 uv = gl_FragCoord.xy / resolution;
-    frag_color.rgba = vec4(
-        gl_FragCoord.x - 0.5,
-        gl_FragCoord.y - 0.5,
-        0, 1);
-    // frag_color.rgba = vec4(1.0, 1.0, 1.0, 1.0);
-    // frag_color.a = 1;
+    // adjust position so it matches GlobalInvocationID in compute shaders
+    vec2 pos = gl_FragCoord.xy - 0.5;
+    frag_color = vec4(pos, 1, 1);
 }
