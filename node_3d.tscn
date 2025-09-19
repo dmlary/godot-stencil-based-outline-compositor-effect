@@ -31,8 +31,9 @@ metadata/_custom_type_script = "uid://d5yrhticd74c"
 [sub_resource type="Compositor" id="Compositor_a0tk4"]
 compositor_effects = Array[CompositorEffect]([SubResource("CompositorEffect_a0tk4")])
 
-[node name="Node3D" type="Node3D" node_paths=PackedStringArray("thickness_label", "thickness_slider", "color_picker", "texture_rect", "texture_rect2", "camera", "arm")]
+[node name="Node3D" type="Node3D" node_paths=PackedStringArray("fps_label", "thickness_label", "thickness_slider", "color_picker", "texture_rect", "texture_rect2", "camera", "arm")]
 script = ExtResource("1_noarx")
+fps_label = NodePath("PanelContainer/MarginContainer/GridContainer/FPSLabel")
 thickness_label = NodePath("PanelContainer/MarginContainer/GridContainer/HBoxContainer/Label")
 thickness_slider = NodePath("PanelContainer/MarginContainer/GridContainer/HBoxContainer/HSlider")
 color_picker = NodePath("PanelContainer/MarginContainer/GridContainer/ColorPickerButton")
@@ -101,8 +102,17 @@ layout_mode = 2
 theme_override_constants/h_separation = 16
 columns = 2
 
+[node name="Label3" type="Label" parent="PanelContainer/MarginContainer/GridContainer"]
+layout_mode = 2
+size_flags_horizontal = 8
+text = "FPS"
+
+[node name="FPSLabel" type="Label" parent="PanelContainer/MarginContainer/GridContainer"]
+layout_mode = 2
+
 [node name="Label" type="Label" parent="PanelContainer/MarginContainer/GridContainer"]
 layout_mode = 2
+size_flags_horizontal = 8
 text = "Thickness
 "
 
@@ -121,6 +131,7 @@ layout_mode = 2
 
 [node name="Label2" type="Label" parent="PanelContainer/MarginContainer/GridContainer"]
 layout_mode = 2
+size_flags_horizontal = 8
 size_flags_vertical = 6
 text = "Color
 "

@@ -1,5 +1,6 @@
 extends Node3D
 
+@export var fps_label: Label
 @export var thickness_label: Label
 @export var thickness_slider: HSlider
 @export var color_picker: ColorPickerButton
@@ -35,7 +36,7 @@ func _ready():
 
 func _process(delta):
     arm.rotate_y(rotation_speed * delta)
-
+    fps_label.text = "%.02f" % Engine.get_frames_per_second()
 
 func _check_shader() -> void:
     outline_effect.check_for_shader_changes()
