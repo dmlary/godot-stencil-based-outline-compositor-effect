@@ -25,8 +25,8 @@ class_name StencilBasedOutlineCompositorEffect
 ## shaders.
 var _hot_reload := false
 
-## Number of jump-flood _passes to run to make the outline; set in thickness
-## setter
+## Number of jump-flood _passes to run to make the outline; automatically set
+## by the thickness setter.
 var _passes := 1
 
 ## GLSL shader definitions for each of our shaders
@@ -486,20 +486,17 @@ func _render_callback(_p_effect_callback_type, p_render_data):
     rd.draw_list_draw(draw_list, false, 3) # this is the 
     rd.draw_list_end()
 
-    # Run jump-flood algorithm to build up the outline
+    # Create our group counts for the next two compute shaders: jump-flood, and
+    # draw-outlines
     @warning_ignore("integer_division")
     var x_groups : int = (resolution.x - 1) / 8 + 1
     @warning_ignore("integer_division")
     var y_groups : int = (resolution.y - 1) / 8 + 1
     var push_constant := PackedByteArray()
-    push_constant.resize(16) # minimum size
+    push_constant.resize(16) # Must be a multiple of 16 bytes
 
-    # XXX next steps:
-    # - create new rendering pipeline to draw outline for only those pixels not
-    #   marked for outline in the stencil buffer
-    # XXX Maybe write the outline back to the color layer instead of an output
-    #     texture that needs to be hooked to a colorRect.
-
+    # Run the jump-flood pipeline the required number of passes, swapping the
+    # textures between each pass.
     var compute_list := rd.compute_list_begin()
     rd.compute_list_bind_compute_pipeline(compute_list, jf_pipeline)
 
@@ -518,14 +515,13 @@ func _render_callback(_p_effect_callback_type, p_render_data):
 
     rd.compute_list_end()
 
-    # XXX need to open an issue about resizing debounce because the tepth and
-    # color textures can be freed underneath you.
-    # XXX Performance problems; it looks like we're using a ton of GPU to do
-    #     the jump-flood _passes.  See about profiling & speeding up.
 
+    # next we run the draw outline pipeline
 
     # Because the color layer can vanish during resize, we just create the
     # uniform set here.
+    # XXX need to open an issue about resizing debounce because the depth and
+    # color textures can be freed underneath you during resize.
     var src_uniform := RDUniform.new()
     src_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
     src_uniform.binding = 0
@@ -537,6 +533,8 @@ func _render_callback(_p_effect_callback_type, p_render_data):
     var uniform_set = UniformSetCacheRD.get_cache(do_shader, 0, [src_uniform, dest_uniform])
     assert(uniform_set.is_valid())
 
+    # construct the push constant for drawing our outlines.  It contains the
+    # outline color, and the outline thickness squared
     var do_push_constant = PackedByteArray()
     do_push_constant.resize(32)
     do_push_constant.encode_float(0, outline_color.r)
@@ -544,12 +542,6 @@ func _render_callback(_p_effect_callback_type, p_render_data):
     do_push_constant.encode_float(8, outline_color.b)
     do_push_constant.encode_float(12, outline_color.a)
     do_push_constant.encode_u32(16, thickness**2)
-
-    # # var do_push_constant = PackedVector4Array()
-    # do_push_constant.resize(1)
-    # do_push_constant[0] = Vector4(1, 1, 0, 1)
-    # do_push_constant = do_push_constant.to_byte_array()
-
 
     compute_list = rd.compute_list_begin()
     rd.compute_list_bind_compute_pipeline(compute_list, do_pipeline)
